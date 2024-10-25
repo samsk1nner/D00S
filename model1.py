@@ -1,1 +1,0 @@
-print("Hello Noah's lock for winning in sports betting.")
