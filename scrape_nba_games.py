@@ -1,6 +1,7 @@
 # Import necessary libraries
 import pandas as pd
 import numpy as np
+import nba_api
 from nba_api.stats.endpoints import LeagueDashTeamStats, LeagueGameLog
 from nba_api.stats.static import teams
 import time  # To respect API rate limits
@@ -45,7 +46,7 @@ def fetch_team_statistics(season='2024-25'):
         # Fetch base team stats
         team_stats_base = LeagueDashTeamStats(
             season=season,
-            measure_type='Base',
+            measure_type_detailed_defense='Base',
             per_mode_detailed='PerGame'
         ).get_data_frames()[0]
         
@@ -55,7 +56,7 @@ def fetch_team_statistics(season='2024-25'):
         # Fetch advanced team stats
         team_stats_advanced = LeagueDashTeamStats(
             season=season,
-            measure_type='Advanced',
+            measure_type_detailed_defense='Advanced',
             per_mode_detailed='PerGame'
         ).get_data_frames()[0]
         
@@ -165,12 +166,12 @@ def fetch_elo_ratings():
 
 # Function to fetch RAPTOR ratings (hypothetical implementation)
 #def fetch_raptor_ratings():
-    """
-    Fetches NBA RAPTOR ratings.
+    #"""
+    #Fetches NBA RAPTOR ratings.
     
-    Returns:
-        pd.DataFrame: DataFrame containing RAPTOR ratings.
-    """
+    #Returns:
+    #    pd.DataFrame: DataFrame containing RAPTOR ratings.
+    #"""
 #    try:
         # Hypothetical URL; replace with actual data source
 #        raptor_url = 'https://example.com/nba_raptor.csv'
@@ -205,7 +206,7 @@ def compile_nba_team_data(season='2024-25'):
     elo_ratings = fetch_elo_ratings()
     
     # Fetch RAPTOR ratings (if available)
-    raptor_ratings = fetch_raptor_ratings()
+    # raptor_ratings = fetch_raptor_ratings()
     
     # Merge game logs with team statistics on TEAM_ID
     combined_data = pd.merge(
@@ -235,18 +236,18 @@ def compile_nba_team_data(season='2024-25'):
     combined_data.drop(['team1', 'team2', 'elo1_pre', 'elo2_pre'], axis=1, inplace=True)
     
     # If RAPTOR data is available, merge it similarly
-    if not raptor_ratings.empty:
-        combined_data = pd.merge(
-            combined_data,
-            raptor_ratings[['team', 'raptor']],
-            left_on='TEAM_NAME',
-            right_on='team',
-            how='left'
-        )
-        # Drop duplicate team column
-        combined_data.drop(['team'], axis=1, inplace=True)
-    else:
-        combined_data['RAPTOR'] = 0  # Placeholder if RAPTOR not available
+#    if not raptor_ratings.empty:
+#        combined_data = pd.merge(
+#            combined_data,
+#            raptor_ratings[['team', 'raptor']],
+#            left_on='TEAM_NAME',
+#            right_on='team',
+#            how='left'
+#        )
+#        # Drop duplicate team column
+#        combined_data.drop(['team'], axis=1, inplace=True)
+#    else:
+#        combined_data['RAPTOR'] = 0  # Placeholder if RAPTOR not available
     
     # Select and rename relevant columns
     combined_data = combined_data[[
@@ -256,7 +257,7 @@ def compile_nba_team_data(season='2024-25'):
         'FG_PCT', 'FG3_PCT', 'FT_PCT', 'REB', 'AST',
         'NET_RATING', 'TOV_PCT', 'REB_PCT', 'FT_RATE',
         'WINS_LAST_10', 'LOSSES_LAST_10',
-        'ELO_DIFF', 'RAPTOR'  # Advanced metrics
+        'ELO_DIFF'  # Advanced metrics
     ]]
     
     # Convert percentages to decimal form if necessary
