@@ -1,6 +1,7 @@
 from nba_api.stats.endpoints import leaguegamefinder
 import pandas as pd
 import time
+from nba_api.stats.static import players
 from nba_api.stats.endpoints import boxscoretraditionalv2
 from sklearn.model_selection import train_test_split, GridSearchCV
 from sklearn.preprocessing import StandardScaler
@@ -55,12 +56,11 @@ def get_player_stats_for_games(games_df):
             boxscore = boxscoretraditionalv2.BoxScoreTraditionalV2(game_id=game_id)
             boxscore_df = boxscore.get_data_frames()[0]
             
-            # Aggregate player stats to team-level stats
+            # Aggregate player stats to team-level stats without TOV
             team_stats = boxscore_df.groupby('TEAM_ID').agg({
                 'PTS': 'sum',
                 'REB': 'sum',
                 'AST': 'sum',
-                'TOV': 'sum',
                 'FGM': 'sum',
                 'FGA': 'sum',
                 'FTM': 'sum',
@@ -69,16 +69,17 @@ def get_player_stats_for_games(games_df):
                 'FG3A': 'sum',
                 'PLUS_MINUS': 'mean'
             }).reset_index()
+            
             team_stats['GAME_ID'] = game_id
             player_stats.append(team_stats)
         
         except Exception as e:
             print(f"Error fetching data for game {game_id}: {e}")
         
-        # Respectful delay
+        # Respectful delay to avoid rate limiting
         time.sleep(1)
     
-    # Combine all player stats into a single DataFrame
+    # Combine all team stats into a single DataFrame
     player_stats_df = pd.concat(player_stats, ignore_index=True)
     return player_stats_df
 
@@ -250,3 +251,69 @@ def train_model_with_historical_data():
 if __name__ == "__main__":
     print("Training model with historical data...")
     model = train_model_with_historical_data()
+
+# Feature Engineering for player props
+def get_player_id_name_mapping():
+    all_players = players.get_players()
+    player_df = pd.DataFrame(all_players)
+    return player_df[['id', 'full_name']]
+
+def add_player_names(player_stats_df):
+    player_mapping = get_player_id_name_mapping()
+    player_stats_df = player_stats_df.merge(player_mapping, left_on='PLAYER_ID', right_on='id', how='left')
+    player_stats_df = player_stats_df.drop(columns=['id'])
+    return player_stats_df
+
+def clean_missing_tov(player_stats_df):
+    player_stats_df['TOV'] = player_stats_df['TOV'].fillna(player_stats_df['TOV'].median())
+    return player_stats_df
+
+def calculate_recent_averages(player_stats_df, n=5):
+    """
+    Calculate recent averages (e.g., last n games) for each player in points, rebounds, assists, etc.
+    """
+    # Sort data by player and game date
+    player_stats_df = player_stats_df.sort_values(['PLAYER_ID', 'GAME_DATE'])
+    
+    # Calculate rolling averages over the last n games for each player (excluding TOV)
+    player_stats_df['PTS_avg_last_n'] = player_stats_df.groupby('PLAYER_ID')['PTS'].transform(lambda x: x.rolling(n, min_periods=1).mean())
+    player_stats_df['REB_avg_last_n'] = player_stats_df.groupby('PLAYER_ID')['REB'].transform(lambda x: x.rolling(n, min_periods=1).mean())
+    player_stats_df['AST_avg_last_n'] = player_stats_df.groupby('PLAYER_ID')['AST'].transform(lambda x: x.rolling(n, min_periods=1).mean())
+    
+    # Add per-minute statistics (excluding TOV)
+    player_stats_df['PTS_per_min'] = player_stats_df['PTS'] / player_stats_df['MIN']
+    player_stats_df['REB_per_min'] = player_stats_df['REB'] / player_stats_df['MIN']
+    player_stats_df['AST_per_min'] = player_stats_df['AST'] / player_stats_df['MIN']
+    
+    return player_stats_df
+
+
+def integrate_team_and_player_data(team_data, player_data):
+    team_player_stats = player_data.groupby(['GAME_ID', 'TEAM_ID']).agg({
+        'PTS_avg_last_n': 'mean',
+        'REB_avg_last_n': 'mean',
+        'AST_avg_last_n': 'mean',
+        'PTS_per_min': 'mean',
+        'REB_per_min': 'mean',
+        'AST_per_min': 'mean'
+    }).reset_index()
+    merged_data = team_data.merge(team_player_stats, on=['GAME_ID', 'TEAM_ID'], how='left')
+    return merged_data
+
+# Modify `get_player_stats_for_games` to apply these functions:
+def get_player_stats_for_games(games_df):
+    player_stats = []
+    for _, game in games_df.iterrows():
+        game_id = game['GAME_ID']
+        try:
+            boxscore = boxscoretraditionalv2.BoxScoreTraditionalV2(game_id=game_id)
+            boxscore_df = boxscore.get_data_frames()[0]
+            boxscore_df = add_player_names(boxscore_df)
+            boxscore_df = clean_missing_tov(boxscore_df)
+            boxscore_df = calculate_recent_averages(boxscore_df)
+            player_stats.append(boxscore_df)
+        except Exception as e:
+            print(f"Error fetching data for game {game_id}: {e}")
+        time.sleep(1)
+    player_stats_df = pd.concat(player_stats, ignore_index=True)
+    return player_stats_df
